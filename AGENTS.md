@@ -79,6 +79,7 @@
 
 | Задача | Инструмент |
 |---|---|
+| Документ DOCX/PPTX/PDF → текст с номерами страниц и слайдов | `python tools/extract_text.py materials/<файл> --out projects/<slug>/analysis/<файл>.md` |
 | Таблица CSV/XLSX → паспорт данных (единицы, период, пропуски, выбросы) | `python tools/data_check.py <файл> --out projects/<slug>/analysis/<файл>.md` |
 | Расчёты по данным | скрипт в `projects/<slug>/analysis/`, а не расчёт «в уме» |
 | Что затронет новый/исправленный факт | `python tools/strategist.py impact <slug> <ID> --mark "<причина>"` |
