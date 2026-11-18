@@ -45,6 +45,20 @@ class ToolsTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("не согласован", r.stdout)
 
+    def test_new_project_keeps_premade_materials(self):
+        mat = self.projects / "pre" / "materials"
+        mat.mkdir(parents=True)
+        (mat / "brief.md").write_text("Материал человека", encoding="utf-8")
+        r = self.run_cli("new", "pre", "--title", "С материалами")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("уже лежит файлов: 1", r.stdout)
+        self.assertEqual((mat / "brief.md").read_text(encoding="utf-8"), "Материал человека")
+        self.assertTrue((self.projects / "pre" / "state.md").exists())
+        self.assertIn("С материалами", (self.projects / "pre" / "state.md").read_text(encoding="utf-8"))
+        r = self.run_cli("new", "pre")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("уже существует", r.stdout + r.stderr)
+
     def test_fact_without_source_is_error(self):
         self.edit("facts.md", "| факт | S2 |", "| факт | S9 |")
         r = self.run_cli("check", "demo", "--step", "3")

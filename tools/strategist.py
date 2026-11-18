@@ -602,15 +602,32 @@ def cmd_new(a):
     if not re.fullmatch(r"[a-z0-9][a-z0-9\-]*", a.slug):
         sys.exit("slug: только латиница в нижнем регистре, цифры и дефис")
     dst = PROJECTS / a.slug
-    if dst.exists():
-        sys.exit(f"Проект уже существует: {dst}")
-    shutil.copytree(TEMPLATES, dst)
+    if (dst / "state.md").exists():
+        sys.exit(f"Проект уже существует: {dst}. Чтобы продолжить: python tools/strategist.py status {a.slug}")
+    # Папка может уже быть: человек заранее положил материалы в projects/<slug>/materials/.
+    # Тогда шаблоны дописываются рядом, а существующие файлы не трогаются.
+    added = []
+    for src in sorted(TEMPLATES.rglob("*")):
+        rel = src.relative_to(TEMPLATES)
+        target = dst / rel
+        if src.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+            added.append(target)
     title = a.title or a.slug
-    for f in dst.rglob("*.md"):
-        f.write_text(read(f).replace("{slug}", a.slug).replace("{title}", title)
-                     .replace("{date}", now()), encoding="utf-8")
+    for f in added:
+        if f.suffix == ".md":
+            f.write_text(read(f).replace("{slug}", a.slug).replace("{title}", title)
+                         .replace("{date}", now()), encoding="utf-8")
     append_log(dst, "Проект создан из шаблонов", 1)
-    print(f"Создан проект: projects/{a.slug}\nМатериалы кладите в projects/{a.slug}/materials/")
+    existing = [f for f in (dst / "materials").rglob("*") if f.is_file() and f.name != "README.md"]
+    print(f"Создан проект: projects/{a.slug}")
+    if existing:
+        print(f"В materials/ уже лежит файлов: {len(existing)} — начните с них (шаг 2).")
+    else:
+        print(f"Материалы кладите в projects/{a.slug}/materials/")
 
 
 def cmd_list(a):
