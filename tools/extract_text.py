@@ -105,6 +105,11 @@ def rels(z: SafeZip, part: str) -> dict[str, str]:
     return out
 
 
+def media_note(z: SafeZip, prefix: str) -> str:
+    n = sum(1 for name in z.names if name.startswith(prefix) and not name.endswith("/"))
+    return f" · изображений и медиа: {n} (их содержимое не извлекается — смотрите средствами среды)" if n else ""
+
+
 def cell(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("|", "\\|")).strip()
 
@@ -122,8 +127,11 @@ def md_table(rows: list[list[str]]) -> list[str]:
 
 # ---------- DOCX ----------
 
+CODE_LEVEL = -1  # «уровень» для стилей кода: такие абзацы идут блоком ```
+
+
 def docx_styles(z: SafeZip) -> dict[str, int]:
-    """styleId → уровень заголовка (Title = 1, Heading N / «Заголовок N» = N)."""
+    """styleId → уровень заголовка (Title = 1, Heading N / «Заголовок N» = N) или CODE_LEVEL."""
     root = z.xml("word/styles.xml")
     levels = {}
     if root is None:
@@ -137,6 +145,8 @@ def docx_styles(z: SafeZip) -> dict[str, int]:
             levels[sid] = int(m.group(1))
         elif name in {"title", "название"}:
             levels[sid] = 1
+        elif re.search(r"source code|^code|html preformatted|plain text|verbatim|программный код", name):
+            levels[sid] = CODE_LEVEL
     return levels
 
 
@@ -167,13 +177,17 @@ def extract_docx(path: Path) -> tuple[list[str], str]:
     levels = docx_styles(z)
     body = doc.find(W + "body")
     out, page = [], 1
+
+    def gap():
+        if out and out[-1]:
+            out.append("")
+
     for el in list(body) if body is not None else []:
         if el.tag == W + "tbl":
             rows = []
             for tr in el.iter(W + "tr"):
                 rows.append(["\n".join(docx_runs(p)[0] for p in tc.iter(W + "p")) for tc in tr.iter(W + "tc")])
-            if out and out[-1]:
-                out.append("")
+            gap()
             out += md_table(rows)
             continue
         if el.tag != W + "p":
@@ -182,22 +196,31 @@ def extract_docx(path: Path) -> tuple[list[str], str]:
         if breaks:
             page += breaks
             out += [f"*[стр. {page}]*", ""]
-        text = text.strip()
-        if not text:
-            continue
         ppr = el.find(W + "pPr")
         style = ppr.find(W + "pStyle") if ppr is not None else None
         level = levels.get(style.get(W + "val", "")) if style is not None else None
+        if level == CODE_LEVEL:
+            if text.strip():
+                if out and out[-1] == "```":
+                    out.pop()
+                else:
+                    gap()
+                    out.append("```text")
+                out += [text.rstrip(), "```"]
+            continue
+        text = text.strip()
+        if not text:
+            continue
         if level:
+            gap()
             out += ["#" * min(level + 1, 6) + " " + text.replace("\n", " "), ""]
         elif ppr is not None and ppr.find(W + "numPr") is not None:
             out.append("- " + text.replace("\n", " "))
         else:
-            if out and out[-1].startswith("- "):
-                out.append("")
+            gap()
             out += [text, ""]
     note = f"страниц по разметке Word: {page} (приблизительно)" if page > 1 else "разрывов страниц нет"
-    return out, note
+    return out, note + media_note(z, "word/media/")
 
 
 # ---------- PPTX ----------
@@ -269,7 +292,7 @@ def extract_pptx(path: Path) -> tuple[list[str], str]:
                 nlines = [l[2:] if l.startswith("- ") else l for l in nlines if l.strip()]
                 if nlines:
                     out += ["**Заметки докладчика:**", ""] + [f"> {l}" for l in nlines] + [""]
-    return out, f"слайдов: {len(order)}"
+    return out, f"слайдов: {len(order)}" + media_note(z, "ppt/media/")
 
 
 # ---------- PDF ----------

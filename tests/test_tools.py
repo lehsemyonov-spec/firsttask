@@ -169,6 +169,27 @@ class ToolsTest(unittest.TestCase):
         self.assertIn("пропусков 1", r.stdout)
         self.assertIn("отрицательные суммы", r.stdout)
 
+    def test_data_check_price_list_like_sheet(self):
+        # Как реальный прайс: шапка с телефоном над таблицей, пустые столбцы, суммы текстом, блоки.
+        rows = ["Контакты: +7 (900) 111 22 33;;;;;", "УПАКОВКА;;;;;",
+                "Размер;До 1000 шт;От 1000 шт;;;", "До 20 см;28р.;26р.;;;", "До 40 см;33р.;30р.;;;",
+                ";;;;;", "Хранение;68 р./сутки;;;;", "Сборка;5р./шт;;;;", ";;;;;", "Итого;;;;;"]
+        f = self.tmp / "price.csv"
+        f.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        script = ROOT / "tools" / "data_check.py"
+        out = self.run_cli(str(f), script=script).stdout
+        self.assertIn("заголовки — строка 3", out)
+        self.assertIn("Пустых столбцов отброшено: 3", out)
+        self.assertIn("[телефон скрыт]", out)
+        self.assertNotIn("111 22 33", out)
+        self.assertIn("Похоже на документ в виде таблицы", out)
+        self.assertIn("сумм записаны текстом с единицами", out)
+        dump = self.run_cli(str(f), "--dump", script=script).stdout
+        self.assertIn("| Строка | A | B | C |", dump)
+        self.assertIn("| 4 | До 20 см | 28р. | 26р. |", dump)
+        manual = self.run_cli(str(f), "--header", "4", script=script).stdout
+        self.assertIn("заголовки — строка 4", manual)
+
     def test_hook_flags_broken_reference(self):
         hook = ROOT / "tools" / "hook.py"
         if not hook.exists():

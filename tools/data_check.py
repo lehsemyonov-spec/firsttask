@@ -3,7 +3,11 @@
 
 Только стандартная библиотека. Читает CSV/TSV и XLSX.
 
-  python tools/data_check.py <файл> [--sheet ИМЯ] [--out путь.md]
+  python tools/data_check.py <файл> [--sheet ИМЯ] [--header N] [--dump] [--out путь.md]
+
+  --header N  номер строки заголовков (1 — первая строка файла); по умолчанию ищется сам
+  --dump      вместо паспорта — весь лист markdown-таблицей с адресами ячеек (для прайсов,
+              форм и «табличных документов», на которые нужно ссылаться: «S3, лист 1, B4»)
 
 Для каждого столбца: заполненность, тип, диапазон, уникальные значения, период (для дат),
 и предупреждения: пропуски, смешанные типы, дубли строк, десятичная запятая, проценты > 100,
@@ -33,6 +37,9 @@ MONEY_HINT = re.compile(r"руб|₽|rub|usd|\$|сумм|выручк|доход
 PCT_HINT = re.compile(r"%|доля|процент|percent|rate|конверс|удержан|retention|churn|отток", re.I)
 DATE_FORMATS = ("%Y-%m-%d", "%d.%m.%Y", "%d.%m.%y", "%Y-%m", "%m/%d/%Y", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S",
                 "%Y-%m-%dT%H:%M:%S", "%d.%m.%Y %H:%M")
+PHONE = re.compile(r"(?:\+7|\b8)[\s\-(]*\d{3}[\s\-)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}\b")
+EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
+MONEY_IN_TEXT = re.compile(r"^(?:от|до)?\s*\d[\d\s]*(?:[.,]\d+)?\s*(?:р|руб|₽)\.?\s*(?:/\s*\S+)?$", re.I)
 MISSING = {"", "-", "—", "n/a", "na", "nan", "null", "none", "#н/д", "#n/a"}
 
 
@@ -76,7 +83,10 @@ def read_xlsx(path: Path, sheet: str | None) -> tuple[list[list[str]], list[str]
         targets = {r.get("Id"): r.get("Target") for r in rels}
         sheets = [(s.get("name"), targets[s.get(REL_NS)]) for s in wb.find("m:sheets", NS)]
         names = [n for n, _ in sheets]
-        chosen = next((s for s in sheets if s[0] == sheet), sheets[0]) if sheet else sheets[0]
+        chosen = next((s for s in sheets if s[0] == sheet), None) if sheet else sheets[0]
+        if chosen is None:
+            sys.exit(f"Лист «{sheet}» не найден. Листы: {', '.join(names)}")
+        names = [chosen[0]] + [n for n in names if n != chosen[0]]
         target = chosen[1].lstrip("/")
         target = target if target.startswith("xl/") else "xl/" + target
         root = ET.fromstring(z.read(target))
@@ -127,16 +137,85 @@ def to_date(s: str, header: str):
     return None
 
 
+def safe(s: str, limit: int = 0) -> str:
+    """Ячейка для markdown: без переводов строк и «|», телефоны и e-mail скрыты."""
+    s = re.sub(r"[\s\u2028\u2029]+", " ", s).strip()
+    s = EMAIL.sub("[e-mail скрыт]", PHONE.sub("[телефон скрыт]", s)).replace("|", "/")
+    return s[:limit] + "…" if limit and len(s) > limit else s
+
+
+def col_letter(i: int) -> str:
+    out = ""
+    i += 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        out = chr(65 + r) + out
+    return out
+
+
+def prepare(rows: list[list[str]]) -> tuple[list[list[str]], list[int], dict]:
+    """Убрать полностью пустые столбцы; вернуть строки, исходные номера столбцов и сведения о форме листа."""
+    used = sorted({i for r in rows for i, c in enumerate(r) if c.strip()})
+    total = max((len(r) for r in rows), default=0)
+    slim = [[r[i] if i < len(r) else "" for i in used] for r in rows]
+    blocks, in_block = 0, False
+    for r in slim:
+        filled = any(c.strip() for c in r)
+        blocks += filled and not in_block
+        in_block = filled
+    nonempty = [r for r in slim if any(c.strip() for c in r)]
+    single = sum(1 for r in nonempty if sum(1 for c in r if c.strip()) == 1)
+    pii = any(PHONE.search(c) or EMAIL.search(c) for r in rows for c in r)
+    return slim, used, {"dropped": total - len(used), "blocks": blocks, "single": single,
+                        "rows": len(nonempty), "pii": pii}
+
+
+def find_header(rows: list[list[str]]) -> int:
+    """Индекс строки заголовков: первая строка, заполненная хотя бы наполовину от самой полной (среди первых 20)."""
+    counts = [sum(1 for c in r if c.strip()) for r in rows[:20]]
+    if not counts:
+        return 0
+    need = max(2, -(-max(counts) // 2))
+    return next((i for i, k in enumerate(counts) if k >= need), 0)
+
+
+def dump(rows: list[list[str]], name: str) -> str:
+    slim, used, info = prepare(rows)
+    out = [f"# Лист целиком: {name}", "",
+           f"Непустых строк: {info['rows']}, столбцов с данными: {len(used)}. Адреса ячеек — как в Excel. "
+           f"Сформировано: {dt.datetime.now():%Y-%m-%d %H:%M} (`tools/data_check.py --dump`).", ""]
+    if info["pii"]:
+        out += ["> Телефоны и e-mail в выводе скрыты.", ""]
+    out += ["| Строка | " + " | ".join(col_letter(i) for i in used) + " |", "|---|" + "---|" * len(used)]
+    for n, r in enumerate(slim, 1):
+        if any(c.strip() for c in r):
+            out.append(f"| {n} | " + " | ".join(safe(c) for c in r) + " |")
+    return "\n".join(out) + "\n"
+
+
 def fmt(x: float) -> str:
     s = f"{x:,.0f}" if abs(x) >= 1000 or x == int(x) else f"{x:,.4g}"
     return s.replace(",", " ")
 
 
-def profile(rows: list[list[str]], name: str) -> str:
-    rows = [r for r in rows if any(c.strip() for c in r)]
-    if not rows:
+def profile(rows: list[list[str]], name: str, header_row: int | None = None) -> str:
+    slim, used, info = prepare(rows)
+    numbered = [(n, r) for n, r in enumerate(slim, 1) if any(c.strip() for c in r)]
+    if not numbered:
         return f"# Паспорт данных: {name}\n\nТаблица пуста.\n"
-    header = [h.strip() or f"столбец_{i + 1}" for i, h in enumerate(rows[0])]
+    if header_row is not None:
+        h_idx = next((i for i, (n, _) in enumerate(numbered) if n >= header_row), 0)
+    else:
+        h_idx = find_header([r for _, r in numbered])
+    above = numbered[:h_idx]
+    h_num, h_cells = numbered[h_idx]
+    rows = [r for _, r in numbered[h_idx:]]
+    header = [safe(h) or f"столбец_{col_letter(used[i])}" for i, h in enumerate(h_cells)]
+    seen_h: dict[str, int] = {}
+    for i, h in enumerate(header):
+        seen_h[h] = seen_h.get(h, 0) + 1
+        if seen_h[h] > 1:
+            header[i] = f"{h} ({col_letter(used[i])})"
     data = rows[1:]
     width = max(len(header), max((len(r) for r in data), default=0))
     header += [f"столбец_{i + 1}" for i in range(len(header), width)]
@@ -144,9 +223,24 @@ def profile(rows: list[list[str]], name: str) -> str:
     n = len(data)
 
     out = [f"# Паспорт данных: {name}", "",
-           f"Строк данных: **{n}**, столбцов: **{width}**. Сформировано: {dt.datetime.now():%Y-%m-%d %H:%M} "
-           "(`tools/data_check.py`).", ""]
+           f"Строк данных: **{n}**, столбцов: **{width}**, заголовки — строка {h_num} файла. "
+           f"Сформировано: {dt.datetime.now():%Y-%m-%d %H:%M} (`tools/data_check.py`).", ""]
     warnings = []
+    if info["dropped"]:
+        warnings.append(f"Пустых столбцов отброшено: {info['dropped']} (форматирование листа без данных)")
+    if above:
+        warnings.append(f"Над заголовками {len(above)} строк(и) — шапка или пояснения: "
+                        + "; ".join(f"стр. {num}: «{safe(' '.join(c for c in r if c.strip()), 60)}»"
+                                    for num, r in above[:3])
+                        + ". Если заголовки определены неверно — укажите --header N")
+    if info["blocks"] >= 3 or (info["rows"] >= 6 and info["single"] / info["rows"] > 0.3):
+        warnings.append(f"Похоже на документ в виде таблицы (прайс, форма, отчёт), а не на таблицу данных: "
+                        f"блоков через пустые строки — {info['blocks']}, строк с одной ячейкой — "
+                        f"{info['single']} из {info['rows']}. Паспорт по столбцам здесь ненадёжен: "
+                        "выгрузите лист целиком (--dump) и ссылайтесь на адреса ячеек")
+    if info["pii"]:
+        warnings.append("В таблице есть телефоны или e-mail — в паспорте они скрыты; "
+                        "в рабочие файлы проекта не переносить")
 
     seen, dups = set(), 0
     for r in data:
@@ -195,11 +289,16 @@ def profile(rows: list[list[str]], name: str) -> str:
                 warnings.append(f"«{h}»: десятичная запятая в {comma_cnt} значениях (прочитано корректно)")
         else:
             typ = "текст"
+            money = [v for v in present if MONEY_IN_TEXT.match(v)]
+            if len(money) >= max(2, 0.3 * k):
+                units = sorted({re.sub(r"^[^/]*", "", v).strip() or "р. без «за что»" for v in money})
+                warnings.append(f"«{h}»: {len(money)} сумм записаны текстом с единицами ("
+                                + ", ".join(units[:5]) + ") — перед расчётами привести к числу и одной единице")
             freq = {}
             for v in present:
                 freq[v] = freq.get(v, 0) + 1
             top = sorted(freq.items(), key=lambda x: -x[1])[:3]
-            rng = "; ".join(f"{v[:25]} ({c})" for v, c in top)
+            rng = "; ".join(f"{safe(v, 25)} ({c})" for v, c in top)
         mixed = k - len(nums) - len(dates) if typ != "текст" else 0
         if mixed > 0:
             warnings.append(f"«{h}»: {mixed} значений не того типа ({typ}) — смешанные данные")
@@ -210,7 +309,7 @@ def profile(rows: list[list[str]], name: str) -> str:
             unit = " · деньги?"
         elif PCT_HINT.search(h):
             unit = " · доля?"
-        out.append(f"| {h} | {k}/{n} | {typ}{unit} | {rng.replace('|', '/')} | {len(set(present))} |")
+        out.append(f"| {h} | {k}/{n} | {typ}{unit} | {safe(rng)} | {len(set(present))} |")
 
     out += ["", "## Предупреждения", ""]
     out += [f"- {w}" for w in warnings] or ["- нет"]
@@ -225,6 +324,8 @@ def main():
     ap = argparse.ArgumentParser(description="Паспорт таблицы: проверка перед анализом")
     ap.add_argument("file")
     ap.add_argument("--sheet")
+    ap.add_argument("--header", type=int, help="номер строки заголовков (с 1)")
+    ap.add_argument("--dump", action="store_true", help="весь лист markdown-таблицей с адресами ячеек")
     ap.add_argument("--out")
     a = ap.parse_args()
     path = Path(a.file)
@@ -233,12 +334,12 @@ def main():
     name = path.name
     if path.suffix.lower() in {".xlsx", ".xlsm"}:
         rows, sheets = read_xlsx(path, a.sheet)
-        name += f" — лист «{a.sheet or sheets[0]}» (листы: {', '.join(sheets)})"
+        name += f" — лист «{sheets[0]}» (листы: {', '.join(sorted(sheets, key=lambda x: x != sheets[0]))})"
     elif path.suffix.lower() in {".csv", ".tsv", ".txt"}:
         rows = read_csv(path)
     else:
         sys.exit("Поддерживаются CSV/TSV/TXT и XLSX. Старый .xls сохраните как .xlsx или CSV.")
-    report = profile(rows, name)
+    report = dump(rows, name) if a.dump else profile(rows, name, a.header)
     if a.out:
         Path(a.out).parent.mkdir(parents=True, exist_ok=True)
         Path(a.out).write_text(report, encoding="utf-8")
