@@ -2,7 +2,7 @@ project: vozvratim
 title: Возвратим
 step: 5
 step_status: ждёт решения человека
-updated: 2026-11-18 18:31
+updated: 2026-11-18 18:34
 next_action: Владелец утверждает (или правит) product-strategy, comms-strategy и пороги ворот в validation-plan; затем шаг 6 (decisions, summary, report). Результат покупки iLost — как новые данные
 
 <!-- step_status: ждёт решения человека | ждёт решения человека | готов -->
