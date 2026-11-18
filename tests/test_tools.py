@@ -1,0 +1,159 @@
+"""Автотесты инструментов. Запуск: python -m unittest discover tests -v
+
+Учебный проект tests/fixture/ содержит вымышленные данные и копируется во временную папку.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+CLI = ROOT / "tools" / "strategist.py"
+FIXTURE = ROOT / "tests" / "fixture"
+
+
+class ToolsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.projects = self.tmp / "projects"
+        shutil.copytree(FIXTURE, self.projects / "demo")
+        self.env = {**os.environ, "STRATEGIST_PROJECTS": str(self.projects), "PYTHONIOENCODING": "utf-8"}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def run_cli(self, *args, script=CLI, stdin=None):
+        return subprocess.run([sys.executable, str(script), *args], capture_output=True, text=True,
+                              encoding="utf-8", env=self.env, input=stdin)
+
+    def edit(self, name, old, new):
+        f = self.projects / "demo" / name
+        f.write_text(f.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+
+    def test_fixture_passes_all_checks(self):
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_new_project_fails_until_filled(self):
+        r = self.run_cli("new", "fresh", "--title", "Новый")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.run_cli("check", "fresh", "--step", "1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("не согласован", r.stdout)
+
+    def test_fact_without_source_is_error(self):
+        self.edit("facts.md", "| факт | S2 |", "| факт | S9 |")
+        r = self.run_cli("check", "demo", "--step", "3")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("несуществующий источник S9", r.stdout)
+
+    def test_synthetic_cannot_be_evidence(self):
+        self.edit("comms-strategy.md", "48% жалоб — на цену [F2]", "так сказали модельные респонденты [F5]")
+        r = self.run_cli("check", "demo", "--step", "5")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("F5 — синтетика", r.stdout)
+
+    def test_unbacked_promise_is_error(self):
+        self.edit("comms-strategy.md", "| Основное бесплатно навсегда | бесплатный план | будет по плану |",
+                  "| Лучший на рынке | — | не подтверждено |")
+        r = self.run_cli("check", "demo", "--step", "5")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("не подкреплено продуктом", r.stdout)
+
+    def test_options_need_status_quo_and_choice(self):
+        self.edit("options.md", "[статус-кво]", "")
+        self.edit("options.md", "Выбрано человеком: O3", "Выбрано человеком:")
+        r = self.run_cli("check", "demo", "--step", "4")
+        self.assertIn("статус-кво", r.stdout)
+        self.assertIn("не выбрал", r.stdout)
+
+    def test_close_option_is_mandatory(self):
+        self.edit("options.md", "[закрыть]", "")
+        r = self.run_cli("check", "demo", "--step", "4")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("[закрыть]", r.stdout)
+
+    def test_synthetic_laundering_through_conclusion(self):
+        with (self.projects / "demo" / "facts.md").open("a", encoding="utf-8") as f:
+            f.write("| F6 | Реклама — главный барьер | вывод | F5 | средняя | Q2 |\n")
+        self.edit("product-strategy.md", "Не переходим на рекламу.", "Не переходим на рекламу [F6].")
+        r = self.run_cli("check", "demo", "--step", "5")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("F6 (вывод) опирается на синтетику F5", r.stdout)
+
+    def test_synthetic_based_hypothesis_is_allowed(self):
+        with (self.projects / "demo" / "facts.md").open("a", encoding="utf-8") as f:
+            f.write("| F6 | Реклама может раздражать | гипотеза | F5 | низкая | Q2 |\n")
+        self.edit("product-strategy.md", "Не переходим на рекламу.", "Не переходим на рекламу (гипотеза [F6]).")
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_ranges_are_expanded(self):
+        self.edit("product-strategy.md", "(прогноз [F4])", "(прогноз [F4], см. F3–F8)")
+        r = self.run_cli("check", "demo", "--step", "5")
+        for missing in ("F6", "F7", "F8"):
+            self.assertIn(f"несуществующий факт {missing}", r.stdout)
+        r = self.run_cli("impact", "demo", "F2")
+        self.assertIn("см. F3–F8", r.stdout)
+
+    def test_non_numeric_step_does_not_crash(self):
+        self.edit("state.md", "step: 6", "step: шаг 6 из 6")
+        r = self.run_cli("status", "demo")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Шаг 6 из 6", r.stdout)
+        self.edit("state.md", "step: шаг 6 из 6", "step: ???")
+        self.assertEqual(self.run_cli("status", "demo").returncode, 0)
+
+    def test_impact_follows_chain_and_marks_state(self):
+        r = self.run_cli("impact", "demo", "S2", "--mark", "обновлены отзывы")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for token in ("F2", "F3", "F4", "options.md", "product-strategy.md", "D1"):
+            self.assertIn(token, r.stdout)
+        state = (self.projects / "demo" / "state.md").read_text(encoding="utf-8")
+        self.assertIn("S2 изменён (обновлены отзывы)", state)
+
+    def test_metrics(self):
+        r = self.run_cli("metrics", "demo")
+        self.assertIn("| Фактов с проверяемым источником | 2/2 |", r.stdout)
+        self.assertIn("| Вариантов | 4 |", r.stdout)
+
+    def test_report_and_cost(self):
+        self.run_cli("cost", "demo", "add", "--step", "4", "--what", "варианты", "--usd", "0.2")
+        r = self.run_cli("report", "demo")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        report = (self.projects / "demo" / "report.md").read_text(encoding="utf-8")
+        self.assertIn("## Продуктовая стратегия", report)
+        self.assertIn("0.50", report)
+
+    def test_data_check_warns(self):
+        csv_file = self.tmp / "m.csv"
+        csv_file.write_text("Дата;Удержание, %;Выручка, руб\n01.01.2025;18,5;100\n01.02.2025;150;-5\n"
+                            "01.03.2025;;90\n", encoding="utf-8")
+        r = self.run_cli(str(csv_file), script=ROOT / "tools" / "data_check.py")
+        self.assertIn("значения > 100", r.stdout)
+        self.assertIn("пропусков 1", r.stdout)
+        self.assertIn("отрицательные суммы", r.stdout)
+
+    def test_hook_flags_broken_reference(self):
+        hook = ROOT / "tools" / "hook.py"
+        if not hook.exists():
+            self.skipTest("hook.py отсутствует")
+        self.edit("facts.md", "| факт | S2 |", "| факт | S9 |")
+        payload = json.dumps({"tool_input": {"file_path": str(self.projects / "demo" / "facts.md")}})
+        r = self.run_cli("post-edit", script=hook, stdin=payload)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("S9", r.stderr)
+        # незаконченный шаг (пустые разделы) хук не блокирует
+        self.edit("facts.md", "| факт | S9 |", "| факт | S2 |")
+        self.edit("brief.md", "Выбор модели монетизации на следующий квартал.", "")
+        payload = json.dumps({"tool_input": {"file_path": str(self.projects / "demo" / "brief.md")}})
+        r = self.run_cli("post-edit", script=hook, stdin=payload)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

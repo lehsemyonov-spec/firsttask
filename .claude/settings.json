@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v python3 >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/tools/hook.py\" session-start; else python \"$CLAUDE_PROJECT_DIR/tools/hook.py\" session-start; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v python3 >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/tools/hook.py\" post-edit; else python \"$CLAUDE_PROJECT_DIR/tools/hook.py\" post-edit; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
