@@ -5,7 +5,7 @@ step_status: в работе
 updated: {date}
 next_action: Уточнить запрос и заполнить brief.md
 
-<!-- step_status: в работе | ждёт решения человека | готов -->
+<!-- Значения step_status и как их менять — AGENTS.md › Переход между шагами (команда strategist.py set). -->
 
 ## Открытые вопросы к человеку
 
