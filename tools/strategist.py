@@ -749,8 +749,13 @@ def cmd_report(a):
     p = project_dir(a.slug)
     st = read_state(p)
     ok, results = run_checks(p, 6)
+    done = 0
+    for n, r in results:  # шаги готовы подряд, пока проверки проходят; не зависит от того, обновлён ли state.md
+        if r.errors:
+            break
+        done = n
     out = [f"# {st.get('title', a.slug)}: итоговый отчёт", "",
-           f"Собран: {now()}. Шаг проекта: {st.get('step', '?')} из 6.", ""]
+           f"Собран: {now()}. Готово шагов: {done} из 6 (по проверкам `check`).", ""]
     if not ok:
         out += ["> ⚠️ Не все проверки пройдены — отчёт черновой. Незакрытые пункты:", ""]
         for n, r in results:
@@ -759,7 +764,7 @@ def cmd_report(a):
     out += ["Обозначения: [F…] — утверждение из реестра (тип указан в нём), [S…] — источник.", ""]
     for fname, title in REPORT_PARTS:
         body = demote(read(p / fname))
-        if body:
+        if body and has_content(body):  # пустые заготовки шаблона (например, «Интервью») не попадают в отчёт
             out += [f"## {title}", "", body, ""]
     out += ["## Затраты", "", cost_summary(p), ""]
     (p / "report.md").write_text("\n".join(out), encoding="utf-8")

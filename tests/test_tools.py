@@ -139,11 +139,15 @@ class ToolsTest(unittest.TestCase):
 
     def test_report_and_cost(self):
         self.run_cli("cost", "demo", "add", "--step", "4", "--what", "варианты", "--usd", "0.2")
+        shutil.copy(ROOT / "templates" / "interviews.md", self.projects / "demo" / "interviews.md")  # пустая заготовка
+        self.run_cli("set", "demo", "--step", "2")  # устаревший номер шага в state.md не должен попасть в отчёт
         r = self.run_cli("report", "demo")
         self.assertEqual(r.returncode, 0, r.stderr)
         report = (self.projects / "demo" / "report.md").read_text(encoding="utf-8")
         self.assertIn("## Продуктовая стратегия", report)
         self.assertIn("0.50", report)
+        self.assertIn("Готово шагов: 6 из 6", report)
+        self.assertNotIn("## Интервью", report)  # в учебном проекте интервью не проводились
         # Резюме — первым разделом, картина ситуации — сразу после брифа.
         order = [report.index(h) for h in ("## Резюме", "## Бриф", "## Картина ситуации", "## Варианты")]
         self.assertEqual(order, sorted(order))
