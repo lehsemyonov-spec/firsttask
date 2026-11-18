@@ -128,6 +128,37 @@ class ToolsTest(unittest.TestCase):
         report = (self.projects / "demo" / "report.md").read_text(encoding="utf-8")
         self.assertIn("## Продуктовая стратегия", report)
         self.assertIn("0.50", report)
+        # Резюме — первым разделом, картина ситуации — сразу после брифа.
+        order = [report.index(h) for h in ("## Резюме", "## Бриф", "## Картина ситуации", "## Варианты")]
+        self.assertEqual(order, sorted(order))
+
+    def test_situation_rules(self):
+        self.edit("situation.md", "## Что спорно", "## Спорное")
+        self.edit("situation.md", "цену подписки [F2]", "цену подписки [F2]; студенты раздражены рекламой [F5]")
+        self.edit("situation.md", "[U1]", "[U9]")
+        self.edit("situation.md", "за янв–сен 2025 [F1].", "за янв–сен 2025 [F1].\n- Фримиум даст +3–6 п.п. [F4].")
+        r = self.run_cli("check", "demo", "--step", "3")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("нет раздела «Что спорно»", r.stdout)
+        self.assertIn("situation.md: F5 — синтетика", r.stdout)
+        self.assertIn("несуществующий пробел U9", r.stdout)
+        self.assertIn("F4 — прогноз, а стоит в «Что известно»", r.stdout)
+        self.assertIn("критичные пробелы не упомянуты", r.stdout)
+
+    def test_situation_is_required(self):
+        (self.projects / "demo" / "situation.md").unlink()
+        r = self.run_cli("check", "demo", "--step", "3")
+        self.assertIn("situation.md: файл отсутствует", r.stdout)
+
+    def test_summary_rules(self):
+        self.edit("summary.md", "девять месяцев [F1].", "девять месяцев.")
+        self.edit("summary.md", "тест фримиума (O3)", "тест фримиума")
+        self.edit("summary.md", "## Что решить сейчас", "## Потом")
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("основание без ссылки на факт", r.stdout)
+        self.assertIn("не назван выбранный человеком вариант O3", r.stdout)
+        self.assertIn("нет раздела «Что решить сейчас»", r.stdout)
 
     def test_data_check_warns(self):
         csv_file = self.tmp / "m.csv"

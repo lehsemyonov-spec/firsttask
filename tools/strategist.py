@@ -67,6 +67,7 @@ class _Refs:
 
 F_REF = _Refs("F")
 S_REF = _Refs("S")
+U_REF = _Refs("U")
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -227,6 +228,21 @@ def sources_index(p: Path) -> dict[str, dict]:
     return {row.get("ID", ""): row for row in first_table(read(p / "sources.md")) if row.get("ID")}
 
 
+def unknowns_index(p: Path) -> dict[str, dict]:
+    return {row.get("ID", ""): row for row in first_table(read(p / "unknowns.md")) if row.get("ID")}
+
+
+def bullets(body: str) -> list[str]:
+    return [m.group(1).strip() for m in re.finditer(r"^\s*(?:[-*]|\d+[.)])\s+(\S.*)$", clean(body), re.M)]
+
+
+def check_unknown_refs(r: Result, fname: str, text: str, unknowns: dict) -> set[str]:
+    refs = set(U_REF.findall(clean(text)))
+    for u in sorted(refs - set(unknowns), key=lambda x: int(x[1:])):
+        r.err(f"{fname}: ссылка на несуществующий пробел {u}")
+    return refs
+
+
 def synthetic_roots(facts: dict, fid: str, seen: set | None = None) -> set[str]:
     """Синтетические утверждения, на которые fid опирается прямо или цепочкой."""
     seen = seen if seen is not None else set()
@@ -325,8 +341,39 @@ def gate3(p: Path, r: Result) -> None:
             if roots:
                 r.err(f"facts.md: {fid} ({typ}) опирается на синтетику {', '.join(sorted(roots))} — "
                       "из ответов ИИ-респондентов получаются только гипотезы; смените тип на «гипотеза»")
-    if not first_table(read(p / "unknowns.md")):
+    unknowns = unknowns_index(p)
+    if not unknowns:
         r.err("unknowns.md: пробелы не названы")
+    situation_check(p, r, facts, unknowns)
+
+
+SITUATION_SECTIONS = ["Главное", "Что известно", "На чём держится решение", "Что спорно", "Чего не знаем"]
+
+
+def situation_check(p: Path, r: Result, facts: dict, unknowns: dict) -> None:
+    """Картина ситуации: читаемая страница поверх реестров, без новых сведений и без синтетики как знания."""
+    text = read(p / "situation.md")
+    secs = require_sections(r, "situation.md", text, SITUATION_SECTIONS)
+    if not text:
+        return
+    check_refs(r, "situation.md", text, facts, forbid_synthetic=True)
+    known = secs.get("Что известно", "")
+    known_refs = F_REF.findall(known)
+    if has_content(known) and not known_refs:
+        r.err("situation.md: в «Что известно» нет ссылок на реестр [F…]")
+    for ref in sorted(set(known_refs), key=lambda x: int(x[1:])):
+        typ = facts.get(ref, {}).get("Тип", "").lower()
+        if typ in {"гипотеза", "прогноз"}:
+            r.warn(f"situation.md: {ref} — {typ}, а стоит в «Что известно»; перенесите в «Что спорно»")
+    for name in ("Что известно", "На чём держится решение"):
+        for b in bullets(secs.get(name, "")):
+            if not F_REF.search(b):
+                r.warn(f"situation.md: «{name}» — пункт без ссылки [F…]: «{b[:60]}»")
+    mentioned = check_unknown_refs(r, "situation.md", text, unknowns)
+    critical = [u for u, row in unknowns.items() if "высок" in row.get("Влияние на решение", "").lower()]
+    missing = [u for u in critical if u not in mentioned]
+    if missing:
+        r.warn(f"situation.md: критичные пробелы не упомянуты в «Чего не знаем»: {', '.join(missing)}")
 
 
 def gate4(p: Path, r: Result) -> None:
@@ -407,6 +454,30 @@ def gate6(p: Path, r: Result) -> None:
         if not row.get("Условие пересмотра"):
             r.err(f"decisions.md: {row.get('ID', '?')} без условия пересмотра")
     check_refs(r, "decisions.md", read(p / "decisions.md"), facts_index(p))
+    summary_check(p, r)
+
+
+SUMMARY_SECTIONS = ["Рекомендация", "Основания", "Риски", "Что решить сейчас"]
+
+
+def summary_check(p: Path, r: Result) -> None:
+    """Резюме на первой странице отчёта: рекомендация, 3 основания с фактами, 3 риска, что решить сейчас."""
+    text = read(p / "summary.md")
+    secs = require_sections(r, "summary.md", text, SUMMARY_SECTIONS)
+    if not text:
+        return
+    check_refs(r, "summary.md", text, facts_index(p), forbid_synthetic=True)
+    check_unknown_refs(r, "summary.md", text, unknowns_index(p))
+    basis = bullets(secs.get("Основания", ""))
+    for b in basis:
+        if not F_REF.search(b):
+            r.err(f"summary.md: основание без ссылки на факт [F…]: «{b[:60]}»")
+    for name, items in (("Основания", basis), ("Риски", bullets(secs.get("Риски", "")))):
+        if items and len(items) < 3:
+            r.warn(f"summary.md: в «{name}» {len(items)} пункт(а), ожидается 3")
+    m = re.search(r"Выбрано человеком:\s*(O\d+)", sections(read(p / "options.md")).get("Выбор", ""))
+    if m and not re.search(rf"\b{m.group(1)}\b", secs.get("Рекомендация", "")):
+        r.warn(f"summary.md: в «Рекомендации» не назван выбранный человеком вариант {m.group(1)}")
 
 
 GATES = {1: gate1, 2: gate2, 3: gate3, 4: gate4, 5: gate5, 6: gate6}
@@ -574,7 +645,9 @@ def cmd_cost(a):
 
 
 REPORT_PARTS = [
+    ("summary.md", "Резюме"),
     ("brief.md", "Бриф"),
+    ("situation.md", "Картина ситуации"),
     ("options.md", "Варианты"),
     ("product-strategy.md", "Продуктовая стратегия"),
     ("comms-strategy.md", "Коммуникационная стратегия"),
