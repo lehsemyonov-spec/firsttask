@@ -153,6 +153,17 @@ class ExtractTest(unittest.TestCase):
         self.assertIn("## Стр. 2", r.stdout)
         self.assertIn("Page two text", r.stdout)
 
+    @unittest.skipUnless(shutil.which("pdftotext"), "pdftotext не установлен")
+    def test_pdf_garbled_text_layer_is_flagged(self):
+        # Так выглядит PDF со сломанной кодировкой шрифтов: цифры и знаки вместо букв.
+        src = self.tmp / "garbled.pdf"
+        make_pdf(src, ["01200234356 34893 #$ #%  2&$2 8***2+ 2,- 01 !! ## 7&&", "Normal page with real words here"])
+        r = self.run_script(src)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("текстовый слой повреждён (стр.: 1)", r.stdout)
+        self.assertNotIn("01200234356", r.stdout)
+        self.assertIn("Normal page with real words here", r.stdout)
+
     def test_pdf_without_pdftotext_explains(self):
         src = self.tmp / "doc.pdf"
         make_pdf(src, ["x"])

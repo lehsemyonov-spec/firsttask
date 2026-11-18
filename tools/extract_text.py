@@ -307,6 +307,19 @@ PDFTOTEXT_HELP = (
 )
 
 
+LETTER = re.compile(r"[A-Za-zА-Яа-яЁё]")
+ODD = re.compile("[\u00ff\ufffd\ue000-\uf8ff\u0080-\u009f]")
+
+
+def looks_garbled(text: str) -> bool:
+    """Текстовый слой «битый»: вместо букв цифры, знаки и «ÿ» (неверная кодировка шрифтов в PDF)."""
+    chars = [c for c in text if not c.isspace()]
+    if len(chars) < 20:
+        return False
+    letters = sum(1 for c in chars if LETTER.match(c))
+    return letters / len(chars) < 0.25 or len(ODD.findall(text)) >= 3
+
+
 def extract_pdf(path: Path) -> tuple[list[str], str]:
     exe = shutil.which("pdftotext")
     if not exe:
@@ -322,11 +335,14 @@ def extract_pdf(path: Path) -> tuple[list[str], str]:
     pages = res.stdout.decode("utf-8", "replace").split("\f")
     if pages and not pages[-1].strip():
         pages = pages[:-1]
-    out, empty = [], 0
+    out, empty, garbled = [], 0, []
     for n, text in enumerate(pages, 1):
         text = "\n".join(l.rstrip() for l in text.strip("\n").splitlines())
         out += [f"## Стр. {n}", ""]
-        if text.strip():
+        if text.strip() and looks_garbled(text):
+            garbled.append(n)
+            out += ["*(текстовый слой повреждён — вместо букв знаки; прочитайте страницу как изображение)*", ""]
+        elif text.strip():
             out += ["```text", text, "```", ""]
         else:
             empty += 1
@@ -336,6 +352,10 @@ def extract_pdf(path: Path) -> tuple[list[str], str]:
         note += "; текста нет совсем — похоже на скан, нужно распознавание средствами среды"
     elif empty:
         note += f"; без текста: {empty}"
+    if garbled:
+        pages_txt = "все" if len(garbled) == len(pages) else ", ".join(map(str, garbled))
+        note += (f"; текстовый слой повреждён (стр.: {pages_txt}) — читайте страницы как изображения: "
+                 f"средствами среды или `pdftoppm -r 100 -png {path.name} стр`")
     return out, note
 
 
