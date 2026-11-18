@@ -13,7 +13,8 @@
   cost <slug> add --step N --what T [--model M] [--tokens N] [--usd X] [--human-min N]
   cost <slug> summary             итог затрат
   report <slug>                   собрать report.md для руководителя
-  impact <slug> <ID> [--mark П]   что зависит от S…/F…/O… (пересмотр при новых данных)
+  impact <slug> <ID> [--mark П] [--status устарел|отозван|действует]
+                                  что зависит от S…/F…/O…; --status меняет статус факта в facts.md
   metrics <slug>                  показатели качества проекта (для сравнения и отчёта)
 """
 from __future__ import annotations
@@ -39,6 +40,8 @@ STEPS = {
     6: "План проверки и итог",
 }
 CLAIM_TYPES = {"факт", "вывод", "гипотеза", "прогноз", "синтетика"}
+FACT_STATUSES = ("действует", "устарел", "отозван")
+INACTIVE_DECISIONS = ("пересмотр", "отмен", "заменен", "заменён")
 COMMENT = re.compile(r"<!--.*?-->", re.S)
 RANGE = re.compile(r"\b([FSOUQD])(\d+)\s*(?:–|—|-|…|\.\.\.?)\s*\1?(\d+)\b")
 
@@ -228,6 +231,29 @@ def sources_index(p: Path) -> dict[str, dict]:
     return {row.get("ID", ""): row for row in first_table(read(p / "sources.md")) if row.get("ID")}
 
 
+def fact_status(row: dict) -> str:
+    """Статус утверждения: «действует», если колонки нет или она пуста (старые проекты не ломаются)."""
+    raw = (row.get("Статус") or "").strip().lower()
+    if not raw:
+        return "действует"
+    word = re.split(r"[\s:;,(]", raw, maxsplit=1)[0]
+    return word if word in FACT_STATUSES else raw
+
+
+def stale_roots(facts: dict, fid: str, seen: set | None = None) -> dict[str, str]:
+    """Неактуальные (устарел/отозван) утверждения, на которые fid опирается цепочкой: {ID: статус}."""
+    seen = seen if seen is not None else set()
+    if fid in seen or fid not in facts:
+        return {}
+    seen.add(fid)
+    out = {}
+    for ref in F_REF.findall(facts[fid].get("Основание", "")):
+        if ref in facts and fact_status(facts[ref]) in ("устарел", "отозван"):
+            out[ref] = fact_status(facts[ref])
+        out.update(stale_roots(facts, ref, seen))
+    return out
+
+
 def unknowns_index(p: Path) -> dict[str, dict]:
     return {row.get("ID", ""): row for row in first_table(read(p / "unknowns.md")) if row.get("ID")}
 
@@ -258,11 +284,27 @@ def synthetic_roots(facts: dict, fid: str, seen: set | None = None) -> set[str]:
     return out
 
 
-def check_refs(r: Result, fname: str, text: str, facts: dict, forbid_synthetic: bool = False) -> None:
+def check_status(r: Result, fname: str, ref: str, facts: dict, soft: bool = False) -> None:
+    """Ссылка на отозванное — ошибка, на устаревшее — предупреждение; soft — всё как предупреждение."""
+    status = fact_status(facts[ref])
+    if status == "отозван":
+        (r.warn if soft else r.err)(f"{fname}: ссылка на отозванный {ref} — уберите или замените на действующий факт")
+    elif status == "устарел":
+        r.warn(f"{fname}: ссылка на устаревший {ref} — проверьте, держится ли вывод, или обновите факт")
+    else:
+        bad = stale_roots(facts, ref)
+        if bad:
+            r.warn(f"{fname}: {ref} опирается на неактуальные " + ", ".join(f"{k} ({v})" for k, v in sorted(bad.items()))
+                   + " — пересмотрите его")
+
+
+def check_refs(r: Result, fname: str, text: str, facts: dict, forbid_synthetic: bool = False,
+               soft_status: bool = False) -> None:
     for ref in sorted(set(F_REF.findall(clean(text))), key=lambda x: int(x[1:])):
         if ref not in facts:
             r.err(f"{fname}: ссылка на несуществующий факт {ref}")
             continue
+        check_status(r, fname, ref, facts, soft_status)
         if not forbid_synthetic:
             continue
         typ = facts[ref].get("Тип", "").lower()
@@ -320,6 +362,14 @@ def gate3(p: Path, r: Result) -> None:
             r.err(f"facts.md: неверный ID «{fid}»")
         if typ not in CLAIM_TYPES:
             r.err(f"facts.md: {fid} — неизвестный тип «{typ}» (допустимо: {', '.join(sorted(CLAIM_TYPES))})")
+        status = fact_status(row)
+        if status not in FACT_STATUSES:
+            r.err(f"facts.md: {fid} — неизвестный статус «{status}» (допустимо: {', '.join(FACT_STATUSES)})")
+        elif status == "действует":
+            bad = stale_roots(facts, fid)
+            if bad:
+                r.warn(f"facts.md: {fid} действует, но опирается на неактуальные "
+                       + ", ".join(f"{k} ({v})" for k, v in sorted(bad.items())) + " — пересмотрите")
         if typ == "факт":
             refs = S_REF.findall(basis)
             if not refs:
@@ -453,7 +503,16 @@ def gate6(p: Path, r: Result) -> None:
             r.err(f"decisions.md: {row.get('ID', '?')} без оснований")
         if not row.get("Условие пересмотра"):
             r.err(f"decisions.md: {row.get('ID', '?')} без условия пересмотра")
-    check_refs(r, "decisions.md", read(p / "decisions.md"), facts_index(p))
+    facts = facts_index(p)
+    for row in dec:
+        did = row.get("ID", "?")
+        inactive = any(k in row.get("Статус", "").lower() for k in INACTIVE_DECISIONS)
+        refs = [f for f in F_REF.findall(row.get("Основания", "")) if f in facts]
+        revoked = [f for f in refs if fact_status(facts[f]) == "отозван"]
+        if revoked and not inactive:
+            r.err(f"decisions.md: {did} опирается на отозванные {', '.join(revoked)} — "
+                  "поставьте статус «пересмотреть» и обсудите с человеком")
+    check_refs(r, "decisions.md", read(p / "decisions.md"), facts, soft_status=True)
     summary_check(p, r)
 
 
@@ -730,11 +789,46 @@ def dependents(p: Path, root: str) -> list[str]:
     return found
 
 
+def set_fact_status(p: Path, fid: str, status: str, reason: str) -> None:
+    """Записать статус в колонку «Статус» facts.md (добавить колонку, если её нет). Строка не удаляется."""
+    path = p / "facts.md"
+    lines = read(path).splitlines()
+    head = next((i for i, l in enumerate(lines) if l.strip().startswith("|") and i + 1 < len(lines)
+                 and is_sep(lines[i + 1])), None)
+    if head is None:
+        sys.exit("facts.md: таблица утверждений не найдена")
+    cols = split_row(lines[head])
+    if "Статус" not in cols:
+        lines[head] = lines[head].rstrip().rstrip("|") + "| Статус |"
+        lines[head + 1] = lines[head + 1].rstrip().rstrip("|") + "|---|"
+        cols.append("Статус")
+    idx = cols.index("Статус")
+    value = status + (f": {reason}" if reason and status != "действует" else "")
+    value = value.replace("|", "/")
+    for i in range(head + 2, len(lines)):
+        if not lines[i].strip().startswith("|"):
+            break
+        cells = split_row(lines[i])
+        if cells and cells[0] == fid:
+            cells += [""] * (len(cols) - len(cells))
+            cells[idx] = value
+            lines[i] = "| " + " | ".join(cells) + " |"
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            return
+    sys.exit(f"facts.md: утверждение {fid} не найдено")
+
+
 def cmd_impact(a):
     p = project_dir(a.slug)
     ident = a.id.upper()
     if not re.fullmatch(r"[SFOUQD]\d+", ident):
         sys.exit("ID: S…, F…, O…, U…, Q… или D…")
+    if a.status:
+        if ident[0] != "F":
+            sys.exit("--status меняется только у утверждений F…")
+        set_fact_status(p, ident, a.status, a.mark or "")
+        append_log(p, f"Статус {ident}: {a.status}" + (f" ({a.mark})" if a.mark else ""), read_state(p).get("step"))
+        print(f"facts.md: {ident} → {a.status}")
     ids = dependents(p, ident) if ident[0] in "SF" else [ident]
     pat = re.compile(r"\b(" + "|".join(map(re.escape, ids)) + r")\b")
     hits: dict[str, list[str]] = {}
@@ -781,9 +875,12 @@ def project_metrics(p: Path) -> dict:
     facts = facts_index(p)
     sources = sources_index(p)
     by_type: dict[str, int] = {}
+    by_status: dict[str, int] = {}
     for row in facts.values():
         t = row.get("Тип", "?").lower()
         by_type[t] = by_type.get(t, 0) + 1
+        st = fact_status(row)
+        by_status[st] = by_status.get(st, 0) + 1
     fact_rows = [r for r in facts.values() if r.get("Тип", "").lower() == "факт"]
     sourced = sum(1 for r in fact_rows if any(s in sources for s in S_REF.findall(r.get("Основание", ""))))
     secs = sections(read(p / "options.md"))
@@ -801,7 +898,7 @@ def project_metrics(p: Path) -> dict:
     mins = sum(num(r.get("Минуты человека")) for r in cost_rows(p))
     return {
         "Источников": len(sources), "Источники по надёжности": rel,
-        "Утверждений": len(facts), "Утверждения по типам": by_type,
+        "Утверждений": len(facts), "Утверждения по типам": by_type, "Утверждения по статусу": by_status,
         "Фактов с проверяемым источником": f"{sourced}/{len(fact_rows)}",
         "Названных пробелов": len(first_table(read(p / "unknowns.md"))),
         "Вариантов": len(opts), "Возражений": objections,
@@ -841,6 +938,8 @@ def main():
     s = sp.add_parser("report"); s.add_argument("slug"); s.set_defaults(f=cmd_report)
     s = sp.add_parser("impact"); s.add_argument("slug"); s.add_argument("id")
     s.add_argument("--mark", metavar="ПРИЧИНА", help="пометить затронутое к пересмотру в state.md")
+    s.add_argument("--status", choices=["устарел", "отозван", "действует"],
+                   help="сменить статус утверждения F… в facts.md (причина — из --mark)")
     s.set_defaults(f=cmd_impact)
     s = sp.add_parser("metrics"); s.add_argument("slug"); s.set_defaults(f=cmd_metrics)
 

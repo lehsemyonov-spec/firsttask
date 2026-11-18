@@ -78,7 +78,7 @@ tests/               автотесты на учебном проекте с в
 **Возможности сверх минимума:**
 - модельные респонденты (их ответы помечаются как синтетика и не принимаются как доказательство);
 - анализ таблиц;
-- пересмотр выводов при новых данных (`impact`);
+- пересмотр выводов при новых данных (`impact`) и отзыв устаревших фактов: статусы «устарел» / «отозван», ссылки на отозванное проверка не пропускает;
 - журнал решений с условиями пересмотра;
 - независимый критик и сверка фактов;
 - хуки и навыки;
@@ -101,6 +101,7 @@ python tools/strategist.py cost retention add --step 3 --what "веб-поиск
 python tools/strategist.py cost retention summary
 python tools/strategist.py report retention
 python tools/strategist.py impact retention S3 --mark "вышли новые данные"
+python tools/strategist.py impact retention F2 --status отозван --mark "ошибка в выгрузке, верно — F9"
 python tools/strategist.py metrics retention
 python tools/data_check.py projects/retention/materials/metrics.csv --out projects/retention/analysis/metrics.md
 ```

@@ -95,7 +95,8 @@ class ToolsTest(unittest.TestCase):
     def test_ranges_are_expanded(self):
         self.edit("product-strategy.md", "(прогноз [F4])", "(прогноз [F4], см. F3–F8)")
         r = self.run_cli("check", "demo", "--step", "5")
-        for missing in ("F6", "F7", "F8"):
+        self.assertIn("ссылка на отозванный F6", r.stdout)  # F6 в учебном проекте отозван
+        for missing in ("F7", "F8"):
             self.assertIn(f"несуществующий факт {missing}", r.stdout)
         r = self.run_cli("impact", "demo", "F2")
         self.assertIn("см. F3–F8", r.stdout)
@@ -118,7 +119,8 @@ class ToolsTest(unittest.TestCase):
 
     def test_metrics(self):
         r = self.run_cli("metrics", "demo")
-        self.assertIn("| Фактов с проверяемым источником | 2/2 |", r.stdout)
+        self.assertIn("| Фактов с проверяемым источником | 3/3 |", r.stdout)
+        self.assertIn("| Утверждения по статусу | действует: 5, отозван: 1 |", r.stdout)
         self.assertIn("| Вариантов | 4 |", r.stdout)
 
     def test_report_and_cost(self):
@@ -131,6 +133,46 @@ class ToolsTest(unittest.TestCase):
         # Резюме — первым разделом, картина ситуации — сразу после брифа.
         order = [report.index(h) for h in ("## Резюме", "## Бриф", "## Картина ситуации", "## Варианты")]
         self.assertEqual(order, sorted(order))
+
+    def test_revoked_and_outdated_facts(self):
+        # Отозвать F2 командой: строка остаётся, статус и причина записаны, в журнале запись.
+        r = self.run_cli("impact", "demo", "F2", "--status", "отозван", "--mark", "ошибка в выгрузке отзывов")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        facts = (self.projects / "demo" / "facts.md").read_text(encoding="utf-8")
+        self.assertIn("| F2 | 48% негативных отзывов", facts)
+        self.assertIn("отозван: ошибка в выгрузке отзывов |", facts)
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("comms-strategy.md: ссылка на отозванный F2", r.stdout)
+        self.assertIn("facts.md: F3 действует, но опирается на неактуальные F2 (отозван)", r.stdout)
+        self.assertIn("decisions.md: D1 опирается на отозванные F2", r.stdout)
+        # Решение поставлено на пересмотр — это уже не ошибка, а предупреждение.
+        self.edit("decisions.md", "| действует |", "| пересмотреть |")
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertNotIn("D1 опирается на отозванные", r.stdout)
+        self.assertIn("decisions.md: ссылка на отозванный F2", r.stdout)
+
+    def test_outdated_is_warning_and_old_tables_work(self):
+        self.run_cli("impact", "demo", "F2", "--status", "устарел", "--mark", "есть данные за 2026")
+        r = self.run_cli("check", "demo", "--step", "5")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("ссылка на устаревший F2", r.stdout)
+        # Проект без колонки «Статус» (созданный до её появления) проверяется как раньше,
+        # а команда добавляет колонку сама.
+        f = self.projects / "demo" / "facts.md"
+        old = "\n".join(l.rsplit("|", 2)[0] + "|" if l.startswith("|") else l
+                        for l in f.read_text(encoding="utf-8").splitlines() if "F6" not in l)
+        f.write_text(old + "\n", encoding="utf-8")
+        self.assertNotIn("Статус", f.read_text(encoding="utf-8"))
+        self.assertEqual(self.run_cli("check", "demo", "--step", "6").returncode, 0)
+        self.run_cli("impact", "demo", "F4", "--status", "отозван", "--mark", "прогноз не подтвердился")
+        text = f.read_text(encoding="utf-8")
+        self.assertIn("| Статус |", text)
+        self.assertIn("| F4 |", text)
+        self.assertIn("отозван: прогноз не подтвердился |", text)
+        self.edit("facts.md", "отозван: прогноз", "забыт: прогноз")
+        r = self.run_cli("check", "demo", "--step", "3")
+        self.assertIn("F4 — неизвестный статус «забыт: прогноз не подтвердился»", r.stdout)
 
     def test_situation_rules(self):
         self.edit("situation.md", "## Что спорно", "## Спорное")
