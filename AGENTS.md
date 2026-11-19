@@ -84,6 +84,7 @@
 | Расчёты по данным | скрипт в `projects/<slug>/analysis/`, а не расчёт «в уме» |
 | Что затронет новый/исправленный факт | `python tools/strategist.py impact <slug> <ID> --mark "<причина>"` |
 | Отозвать или пометить устаревшим факт | `python tools/strategist.py impact <slug> F… --status отозван --mark "<причина>"` |
+| Размер пилота и успеем ли набрать (две доли, группы, темп) | `python tools/pilot_size.py --base 12 --target 9 [--group-size 2.5 --icc 0.1] [--per-week 100]`; что заметим при данном числе — `--units N` |
 | Показатели качества проекта | `python tools/strategist.py metrics <slug>` |
 | Интервью и модельные респонденты | `knowledge/interviews.md`, файл проекта `interviews.md` |
 | Сайты и поиск | встроенные инструменты среды (поиск, чтение страниц) |

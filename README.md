@@ -65,6 +65,7 @@ templates/           шаблоны файлов проекта
 projects/<slug>/     материалы, рабочие файлы, analysis/ и состояние конкретной задачи
 tools/strategist.py  CLI: new, list, status, set, check, log, cost, report, impact, metrics
 tools/data_check.py  паспорт таблиц CSV/XLSX
+tools/pilot_size.py  размер пилота и темп набора
 tools/extract_text.py текст из DOCX/PPTX/PDF с номерами страниц и слайдов
 tools/hook.py        хуки (Claude Code; в других средах можно вызывать вручную)
 benchmark/           методика сравнения с обычным чатом и аналитиком

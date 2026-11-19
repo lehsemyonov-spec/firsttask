@@ -307,6 +307,21 @@ class ToolsTest(unittest.TestCase):
         manual = self.run_cli(str(f), "--header", "4", script=script).stdout
         self.assertIn("заголовки — строка 4", manual)
 
+    def test_pilot_size(self):
+        script = ROOT / "tools" / "pilot_size.py"
+        out = self.run_cli("--base", "12", "--target", "9", script=script).stdout
+        self.assertIn("в каждой группе сравнения (если все независимы): 1638", out)  # стандартная формула двух долей
+        self.assertIn("3.0 п.п., или 25%", out)
+        out = self.run_cli("--base", "0.12", "--target", "0.09", "--group-size", "2.5", "--icc", "0.1",
+                           "--per-week", "100", script=script).stdout
+        self.assertIn("в 1.15 раза", out)
+        self.assertIn("всего 1508", out)
+        self.assertIn("около 16 нед.", out)
+        out = self.run_cli("--base", "12", "--units", "1638", script=script).stdout
+        self.assertIn("заметим изменение до 9 %", out)
+        r = self.run_cli("--base", "12", "--target", "12", script=script)
+        self.assertEqual(r.returncode, 2)
+
     def test_hook_flags_broken_reference(self):
         hook = ROOT / "tools" / "hook.py"
         if not hook.exists():
