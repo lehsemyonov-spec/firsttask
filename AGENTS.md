@@ -62,7 +62,7 @@
 | 3. Исследование | `workflow/03-research.md` | `research-plan.md`, `facts.md`, `unknowns.md`, `situation.md` | — (показать картину ситуации и критичные пробелы) |
 | 4. Варианты | `workflow/04-options.md` | `options.md` | 🛑 человек выбирает вариант |
 | 5. Стратегия | `workflow/05-strategy.md` | `product-strategy.md`, `comms-strategy.md` | 🛑 стратегия утверждена |
-| 6. План проверки и итог | `workflow/06-validation.md` | `validation-plan.md`, `decisions.md`, `summary.md`, `report.md` | — |
+| 6. План проверки и итог | `workflow/06-validation.md` | `validation-plan.md`, `decisions.md`, `summary.md`, `deliverable.md` (документ в структуре заказчика, если она задана), `report.md` | — |
 
 Перед началом шага **прочитай его файл в `workflow/`** и методички, на которые он ссылается. Не держи в голове весь `knowledge/` сразу — читай нужное.
 

@@ -514,6 +514,62 @@ def gate6(p: Path, r: Result) -> None:
                   "поставьте статус «пересмотреть» и обсудите с человеком")
     check_refs(r, "decisions.md", read(p / "decisions.md"), facts, soft_status=True)
     summary_check(p, r)
+    deliverable_check(p, r)
+
+
+FORMAT_SECTION = "Формат результата"
+STOPWORDS = {"и", "в", "во", "на", "по", "для", "с", "со", "к", "о", "об", "от", "до", "из", "за", "а", "или", "the", "and"}
+
+
+def format_parts(p: Path) -> list[str]:
+    """Части итогового документа, которые задал заказчик (brief.md › «Формат результата»).
+    Пусто — формат не задан («по умолчанию» или раздела нет): требуется только обычный отчёт."""
+    body = sections(read(p / "brief.md")).get(FORMAT_SECTION, "")
+    items = bullets(body)
+    if not items or "по умолчанию" in clean(body).lower() and len(items) < 2:
+        return []
+    return [re.sub(r"\s+[—–-]\s.*$|:\s.*$", "", i).strip(" *«»\"") or i for i in items]
+
+
+def key_words(text: str) -> set[str]:
+    text = re.sub(r"^(?:часть\s*)?\d+[.)]?\s*", "", text.lower().replace("ё", "е"))
+    return {w[:6] for w in re.findall(r"[a-zа-я0-9]+", text) if w not in STOPWORDS and (len(w) > 2 or w.isdigit())}
+
+
+def part_matches(part: str, heading: str) -> bool:
+    """Раздел соответствует части, если в заголовке есть больше половины её значимых слов (по основе)."""
+    need = key_words(part)
+    return bool(need) and len(need & key_words(heading)) * 2 > len(need)
+
+
+def deliverable_check(p: Path, r: Result) -> None:
+    """Если заказчик задал структуру результата — deliverable.md собран строго по ней (любое число частей)."""
+    parts = format_parts(p)
+    text = read(p / "deliverable.md")
+    if not parts:
+        if text and has_content(text):
+            check_refs(r, "deliverable.md", text, facts_index(p), forbid_synthetic=True)
+        return
+    if not text or not has_content(text):
+        r.err(f"deliverable.md: заказчик задал формат результата ({len(parts)} част.), а документ не собран")
+        return
+    secs = sections(text)
+    headings = list(secs)
+    used = set()
+    order = []
+    for i, part in enumerate(parts, 1):
+        hit = next((h for h in headings if h not in used and part_matches(part, h)), None)
+        if hit is None:
+            r.err(f"deliverable.md: нет раздела для части {i} из {len(parts)} «{part}» (заголовок `## …`)")
+            continue
+        used.add(hit)
+        order.append(headings.index(hit))
+        if not has_content(secs[hit]):
+            r.err(f"deliverable.md: раздел «{hit}» пуст")
+    if order != sorted(order):
+        r.warn("deliverable.md: части идут не в том порядке, что в «Формате результата»")
+    check_refs(r, "deliverable.md", text, facts_index(p), forbid_synthetic=True)
+    check_unknown_refs(r, "deliverable.md", text, unknowns_index(p))
 
 
 SUMMARY_SECTIONS = ["Рекомендация", "Основания", "Риски", "Что решить сейчас"]
@@ -736,9 +792,26 @@ REPORT_PARTS = [
 ]
 
 
+def drop_empty_sections(md: str) -> str:
+    """Убрать разделы `## …`, в которых нет содержания (необязательные заготовки шаблона)."""
+    lines = clean(md).splitlines()
+    out, block = [], []
+    def flush():
+        if block and (not block[0].startswith("## ") or has_content("\n".join(block[1:]))):
+            out.extend(block)
+    for line in lines:
+        if line.startswith("## "):
+            flush()
+            block = [line]
+        else:
+            block.append(line)
+    flush()
+    return "\n".join(out)
+
+
 def demote(md: str) -> str:
     """Понизить заголовки на уровень, убрать комментарии и первый заголовок файла."""
-    lines = clean(md).strip().splitlines()
+    lines = drop_empty_sections(md).strip().splitlines()
     if lines and lines[0].startswith("# "):
         lines = lines[1:]
     text = "\n".join(("#" + l) if l.startswith("#") else l for l in lines).strip()
@@ -762,7 +835,17 @@ def cmd_report(a):
             out += [f"> - шаг {n}: {e}" for e in r.errors]
         out.append("")
     out += ["Обозначения: [F…] — утверждение из реестра (тип указан в нём), [S…] — источник.", ""]
-    for fname, title in REPORT_PARTS:
+    parts = list(REPORT_PARTS)
+    deliverable = read(p / "deliverable.md")
+    if deliverable and has_content(deliverable):
+        # Документ в структуре заказчика — сразу после резюме; рабочие файлы — приложениями.
+        parts = [parts[0], ("deliverable.md", "Документ по структуре заказчика"),
+                 ("", "Приложения: рабочие материалы")] + parts[1:]
+    for fname, title in parts:
+        if not fname:
+            out += [f"## {title}", "", "Ниже — рабочие файлы, из которых собран документ: бриф, картина ситуации, "
+                    "варианты, стратегии, план проверки, решения, пробелы и реестры.", ""]
+            continue
         body = demote(read(p / fname))
         if body and has_content(body):  # пустые заготовки шаблона (например, «Интервью») не попадают в отчёт
             out += [f"## {title}", "", body, ""]

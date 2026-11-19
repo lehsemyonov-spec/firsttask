@@ -192,6 +192,63 @@ class ToolsTest(unittest.TestCase):
         r = self.run_cli("check", "demo", "--step", "3")
         self.assertIn("F4 — неизвестный статус «забыт: прогноз не подтвердился»", r.stdout)
 
+    SEVEN = ["Контекст и цель", "Клиент и его проблема", "Предложение и путь к клиенту", "Польза и прибыль",
+             "Стратегический выбор", "План по кварталам", "Ресурсы, риски и решение руководителя"]
+
+    def set_format(self, parts):
+        lines = "\n".join(f"{i}. {t}" for i, t in enumerate(parts, 1))
+        brief = self.projects / "demo" / "brief.md"
+        text = brief.read_text(encoding="utf-8")
+        brief.write_text(text.replace("## Согласование", f"## Формат результата\n{lines}\n\n## Согласование"),
+                         encoding="utf-8")
+
+    def write_deliverable(self, parts):
+        body = "\n\n".join(f"## {i}. {t}\n\nСодержание части со ссылкой [F1]." for i, t in enumerate(parts, 1))
+        (self.projects / "demo" / "deliverable.md").write_text(f"# Документ\n\n{body}\n", encoding="utf-8")
+
+    def test_format_any_number_of_parts(self):
+        # Структура заказчика из 7 частей: число берётся из брифа, а не зашито.
+        self.set_format(self.SEVEN)
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("заказчик задал формат результата (7 част.), а документ не собран", r.stdout)
+        self.write_deliverable([t for t in self.SEVEN if t != "План по кварталам"])
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertIn("нет раздела для части 6 из 7 «План по кварталам»", r.stdout)
+        self.assertEqual(r.stdout.count("нет раздела для части"), 1)
+        self.write_deliverable(self.SEVEN)
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        # Отчёт: резюме → документ заказчика → приложения.
+        self.run_cli("report", "demo")
+        report = (self.projects / "demo" / "report.md").read_text(encoding="utf-8")
+        order = [report.index(h) for h in ("## Резюме", "## Документ по структуре заказчика",
+                                           "### 6. План по кварталам", "## Приложения", "## Бриф")]
+        self.assertEqual(order, sorted(order))
+
+    def test_format_parts_matched_by_meaning_not_exact_text(self):
+        self.set_format(["Клиент и его проблема — восстановите случай", "Ресурсы, риски и решение руководителя"])
+        (self.projects / "demo" / "deliverable.md").write_text(
+            "# Д\n\n## 1. Клиент и проблема\n\nТекст [F1].\n\n## 2. Ресурсы и риски, решение руководителя\n\nТекст.\n",
+            encoding="utf-8")
+        r = self.run_cli("check", "demo", "--step", "6")
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_default_format_needs_no_deliverable(self):
+        # «по умолчанию» и старые проекты без раздела — работают как раньше.
+        brief = self.projects / "demo" / "brief.md"
+        brief.write_text(brief.read_text(encoding="utf-8").replace(
+            "## Согласование", "## Формат результата\nпо умолчанию\n\n## Согласование"), encoding="utf-8")
+        self.assertEqual(self.run_cli("check", "demo", "--step", "6").returncode, 0)
+        r = self.run_cli("new", "fresh2")
+        self.assertIn("по умолчанию", (self.projects / "fresh2" / "brief.md").read_text(encoding="utf-8"))
+
+    def test_report_drops_empty_optional_sections(self):
+        vp = self.projects / "demo" / "validation-plan.md"
+        vp.write_text(vp.read_text(encoding="utf-8") + "\n## План по этапам\n<!-- заготовка -->\n", encoding="utf-8")
+        self.run_cli("report", "demo")
+        self.assertNotIn("План по этапам", (self.projects / "demo" / "report.md").read_text(encoding="utf-8"))
+
     def test_situation_rules(self):
         self.edit("situation.md", "## Что спорно", "## Спорное")
         self.edit("situation.md", "цену подписки [F2]", "цену подписки [F2]; студенты раздражены рекламой [F5]")
