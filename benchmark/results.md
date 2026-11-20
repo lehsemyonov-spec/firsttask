@@ -22,7 +22,7 @@
 ## Пара на DeepSeek
 
 Модель: <!-- одна и та же для A и B, например deepseek-chat -->
-Среда агента: <!-- VS Code + Cline / Roo Code / Cursor / OpenCode -->
+Среда агента: <!-- OpenCode / VS Code + Cline / Roo Code / Cursor -->
 
 | Показатель | A-DeepSeek — агент | B-DeepSeek — обычный чат |
 |---|---|---|

@@ -8,7 +8,7 @@
 |---|---|---|
 | A-Claude | агент в Claude Code | этот репозиторий, полный путь до `report.md` |
 | B-Claude | обычный чат Claude (claude.ai) | та же модель, без репозитория: бриф + промпт из `baseline-prompt.md` |
-| A-DeepSeek | агент на модели DeepSeek (VS Code + Cline / Roo Code, Cursor, OpenCode) | этот репозиторий |
+| A-DeepSeek | агент на модели DeepSeek (OpenCode; также VS Code + Cline / Roo Code, Cursor) | этот репозиторий |
 | B-DeepSeek | обычный чат DeepSeek (сайт или приложение) | та же модель, без репозитория |
 | C | аналитик вручную (если есть) | человек с тем же брифом и сроком |
 
