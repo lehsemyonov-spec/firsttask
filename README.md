@@ -6,7 +6,7 @@
 
 ## Быстрый старт
 
-1. Откройте папку в своей среде: Cursor, Claude Code, Codex, GitHub Copilot, OpenCode, Windsurf, GigaCode, Gemini CLI.
+1. Откройте папку в своей среде: Cursor, Claude Code, Codex, GitHub Copilot, OpenCode, Windsurf, GigaCode, Gemini CLI, VS Code с Cline или Roo Code (в том числе на моделях DeepSeek). Обычный чат без доступа к файлам не подходит: агенту нужны чтение папки и запуск скриптов.
 2. Напишите в чат агента:
    > Новый проект: у нашего приложения падает удержание новых пользователей, нужно понять почему и что делать.
 3. Положите материалы (таблицы, документы, PDF, сохранённые страницы) в `projects/<проект>/materials/`. Агент подскажет, в какую именно папку.
@@ -55,7 +55,7 @@
 
 ```
 AGENTS.md            главные правила (общие для всех агентов)
-CLAUDE.md, GEMINI.md, .cursor/, .github/   переходники к AGENTS.md
+CLAUDE.md, GEMINI.md, .cursor/, .github/, .clinerules/, .roo/   переходники к AGENTS.md
 .claude/agents/      помощники: skeptic, fact-checker, respondent
 .claude/skills/      навыки: пересмотр при новых данных, модельные интервью, паспорт данных
 .claude/settings.json  хуки Claude Code: статус в начале сессии, проверка после правки
