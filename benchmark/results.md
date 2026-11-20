@@ -21,7 +21,8 @@
 
 ## Пара на DeepSeek
 
-Модель: <!-- одна и та же для A и B, например deepseek-chat -->
+Модель: <!-- одна и та же для A и B, например «DeepSeek V4.1 Flash Free» в OpenCode -->
+Где запускали чат: <!-- OpenCode в пустой папке / сайт DeepSeek (версия модели) -->
 Среда агента: <!-- OpenCode / VS Code + Cline / Roo Code / Cursor -->
 
 | Показатель | A-DeepSeek — агент | B-DeepSeek — обычный чат |
