@@ -6,7 +6,7 @@
 
 ## 1. Перед записью (чек-лист)
 
-- [ ] Claude Code на своём компьютере, папка репозитория, ветка `claude/focused-brown-hbrs0p` (или `main`, если уже влили), свежая версия: `git pull`.
+- [ ] Claude Code на своём компьютере, папка репозитория, ветка `main`, свежая версия: `git pull`.
 - [ ] `python3 --version` (или `python --version`) — 3.9 или новее; `python3 -m unittest discover tests` — всё «OK».
 - [ ] В `projects/svyaz-blizkih/` лежит только `materials/` (бриф и опись). Если там остались файлы от пробы — удалите всё, кроме `materials/`.
 - [ ] Записали расход в настройках claude.ai **до** старта и засекли время.
@@ -117,4 +117,4 @@
 
 - Запишите расход в настройках claude.ai **после** и общее время — это цифры для PDF.
 - Закоммитьте проект: `git add projects/svyaz-blizkih && git commit -m "Демо-проект по брифу МегаФона" && git push`.
-- Пришлите сюда ссылку на видео и цифры — внесу их в `docs/architecture.md` и HANDOFF.
+- Пришлите сюда ссылку на видео и цифры — внесу их в `docs/architecture.md` и `docs/HANDOFF.md`.
