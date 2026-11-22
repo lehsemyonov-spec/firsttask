@@ -5,6 +5,7 @@
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -16,15 +17,43 @@ CLI = ROOT / "tools" / "strategist.py"
 FIXTURE = ROOT / "tests" / "fixture"
 
 
+def make_writable(root: Path) -> None:
+    """Снять «только чтение» со всего дерева (Windows копирует этот атрибут вместе с файлами)."""
+    for p in [root, *root.rglob("*")]:
+        try:
+            os.chmod(p, stat.S_IREAD | stat.S_IWRITE | (stat.S_IEXEC if p.is_dir() else 0))
+        except OSError:
+            pass
+
+
+def remove_tree(root: Path) -> None:
+    """Надёжно удалить временную папку и на Windows: снять «только чтение» и повторить."""
+    def retry(func, path, _exc):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+    try:
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(root, onexc=retry)
+        else:
+            shutil.rmtree(root, onerror=retry)
+    except OSError:
+        pass
+    shutil.rmtree(root, ignore_errors=True)
+
+
 class ToolsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.projects = self.tmp / "projects"
-        shutil.copytree(FIXTURE, self.projects / "demo")
+        shutil.copytree(FIXTURE, self.projects / "demo", copy_function=shutil.copyfile)
+        make_writable(self.tmp)
         self.env = {**os.environ, "STRATEGIST_PROJECTS": str(self.projects), "PYTHONIOENCODING": "utf-8"}
 
     def tearDown(self):
-        shutil.rmtree(self.tmp)
+        remove_tree(self.tmp)
 
     def run_cli(self, *args, script=CLI, stdin=None):
         return subprocess.run([sys.executable, str(script), *args], capture_output=True, text=True,

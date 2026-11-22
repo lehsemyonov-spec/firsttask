@@ -670,7 +670,9 @@ def cmd_new(a):
             target.mkdir(parents=True, exist_ok=True)
         elif not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, target)
+            # copyfile, а не copy2: не переносим атрибут «только чтение» (Windows, OneDrive) —
+            # иначе агент не сможет записать файлы проекта.
+            shutil.copyfile(src, target)
             added.append(target)
     title = a.title or a.slug
     for f in added:

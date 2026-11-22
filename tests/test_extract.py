@@ -109,7 +109,8 @@ class ExtractTest(unittest.TestCase):
         self.env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
     def tearDown(self):
-        shutil.rmtree(self.tmp)
+        from test_tools import remove_tree
+        remove_tree(self.tmp)
 
     def run_script(self, *args, env=None):
         return subprocess.run([sys.executable, str(SCRIPT), *map(str, args)], capture_output=True,
