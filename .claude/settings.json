@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v python3 >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/tools/hook.py\" session-start; else python \"$CLAUDE_PROJECT_DIR/tools/hook.py\" session-start; fi"
+            "command": "if python3 -c \"\" >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/tools/hook.py\" session-start; else python \"$CLAUDE_PROJECT_DIR/tools/hook.py\" session-start; fi"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if command -v python3 >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/tools/hook.py\" post-edit; else python \"$CLAUDE_PROJECT_DIR/tools/hook.py\" post-edit; fi"
+            "command": "if python3 -c \"\" >/dev/null 2>&1; then python3 \"$CLAUDE_PROJECT_DIR/tools/hook.py\" post-edit; else python \"$CLAUDE_PROJECT_DIR/tools/hook.py\" post-edit; fi"
           }
         ]
       }
