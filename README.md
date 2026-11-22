@@ -6,7 +6,7 @@
 
 ## Демонстрационный проект
 
-Пример работы агента на брифе МегаФона «Связь для близких и собственных устройств» — [`projects/svyaz-blizkih/`](projects/svyaz-blizkih/README.md): исходный бриф, итоговый отчёт ([`report.md`](projects/svyaz-blizkih/report.md)) с документом в структуре брифа, продуктовая и коммуникационная стратегии, план проверки и весь след работы. Второй пример — [`projects/vozvratim/`](projects/vozvratim/report.md).
+Пример работы агента на брифе МегаФона «Связь для близких и собственных устройств» — [`projects/svyaz-blizkih/`](projects/svyaz-blizkih/README.md): исходный бриф, итоговый отчёт ([`report.md`](projects/svyaz-blizkih/report.md)) с документом в структуре брифа, продуктовая и коммуникационная стратегии, план проверки и весь след работы. Тот же бриф, пройденный **в другой среде и на других моделях** (OpenCode, DeepSeek V4.1 Flash и Nemotron), — [`projects/svyaz-blizkih-opencode/`](projects/svyaz-blizkih-opencode/README.md): проверка переносимости. Вторая задача — [`projects/vozvratim/`](projects/vozvratim/report.md). Все прогоны — [`projects/README.md`](projects/README.md).
 
 ## Быстрый старт
 
